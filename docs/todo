@@ -1,5 +1,6 @@
-[] market check
+[x] market check
 [] hash tsns
 [] editable tsns
 [] kraken
 [] text printout prototype
+[] rate limit mixin
