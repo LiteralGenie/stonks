@@ -1,8 +1,6 @@
-from classes.services import data_service
+from classes.services import GeckoService
 
-GeckoService: data_service.GeckoService
+GeckoService: GeckoService
 
 def configure():
-    import env
-
-    GeckoService = data_service.GeckoService()
+    GeckoService = GeckoService()

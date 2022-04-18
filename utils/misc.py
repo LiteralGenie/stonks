@@ -1,4 +1,4 @@
-import os
+import functools
 
 
 def method_cache(fp: str):
@@ -28,5 +28,33 @@ def method_cache(fp: str):
                 json.dump(cache, file)
             
             return cache[hash]
+        return wrapper
+    return decorator
+
+
+CALL_LOG = dict()
+def limit(calls: int, period: float = 1, scope = ''):
+    import time
+
+    CALL_LOG.setdefault(scope, [])
+
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            history = CALL_LOG[scope]
+            now = time.time()
+
+            while len(history) > 0:
+                if (now - history[0]) > period:
+                    history.pop(0)
+            
+            if len(history) >= calls:
+                oldest = history[0]
+                time.sleep(period - oldest)
+                history.pop(0)
+
+            CALL_LOG.append(now)
+
+            return f(*args, **kwargs)
         return wrapper
     return decorator
