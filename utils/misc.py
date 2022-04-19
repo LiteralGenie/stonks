@@ -17,7 +17,7 @@ def method_cache(fp: str):
             if not fp.parent.exists():
                 fp.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(fp, 'a+', encoding='utf-8') as file:
+            with open(fp, 'r+', encoding='utf-8') as file:
                 try: cache = json.load(file)
                 except json.JSONDecodeError: cache = {}
     
@@ -25,7 +25,8 @@ def method_cache(fp: str):
                     result = f(*args, **kwargs)
                     cache[hash] = result
                 
-                json.dump(cache, file)
+            with open(fp, 'w+', encoding='utf-8') as file:
+                json.dump(cache, file, indent=2)
             
             return cache[hash]
         return wrapper
@@ -53,7 +54,7 @@ def limit(calls: int, period: float = 1, scope = ''):
                 time.sleep(period - oldest)
                 history.pop(0)
 
-            CALL_LOG.append(now)
+            history.append(now)
 
             return f(*args, **kwargs)
         return wrapper
