@@ -45,17 +45,26 @@ def limit(calls: int, period: float = 1, scope = ''):
             history = CALL_LOG[scope]
             now = time.time()
 
-            while len(history) > 0:
-                if (now - history[0]) > period:
+            while True:
+                if len(history) == 0:
+                    break
+
+                elapsed = now - history[0]
+                if elapsed > period:
                     history.pop(0)
+                else:
+                    break
             
             if len(history) >= calls:
                 oldest = history[0]
-                time.sleep(period - oldest)
-                history.pop(0)
+                elapsed = now - oldest
+                rem = period - elapsed
+                if rem >= 0:
+                    time.sleep(rem)
+                    history.pop(0)
 
-            history.append(now)
-
-            return f(*args, **kwargs)
+            result = f(*args, **kwargs)
+            history.append(time.time())
+            return result
         return wrapper
     return decorator
