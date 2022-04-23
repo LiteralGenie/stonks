@@ -44,16 +44,14 @@ class Node:
         else:
             return [self]
 
-    @property
-    def basis_rate(self) -> Value:
-        if self.parent is None:
+    def _get_basis_rate(self, currency: str) -> Value:
+        if (self.parent is None) or (self.value.currency == currency):
             return ds.replace(self.value, quantity=self.basis_rate)
         else:
             return self.to_parent_rate * self.parent.basis_rate
     
-    @property
-    def basis(self) -> Value:
-        return self.value.quantity * self.basis_rate
+    def get_basis(self, currency: str) -> Value:
+        return self.value.quantity * self._get_basis_rate(currency)
 
     @cached_property
     def market(self):
