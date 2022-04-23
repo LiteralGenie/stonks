@@ -6,6 +6,7 @@ import time
 import urllib.parse
 
 import requests
+from classes.parser import Tsn, Value
 from classes.json_cache import JsonCache
 
 from config import secrets, paths
@@ -15,11 +16,52 @@ LOG = logging.getLogger(__name__)
 
 class KrakenService:
     API_URL = 'https://api.kraken.com'
-    CACHE_PATH = paths.CACHE_DIR / 'kraken.json'
+    TRADE_CACHE = JsonCache(paths.CACHE_DIR / 'kraken' / 'trades.json', default=[])
+    PAIR_CACHE = JsonCache(paths.CACHE_DIR / 'kraken' / 'pairs.json', default={})
 
-    def fetch_history(self):
-        cache_file = JsonCache(self.CACHE_PATH, default=[])
-        trades = cache_file.load()
+    def fetch_transactions(self) -> list[Tsn]:
+        trades = self._fetch_trades()
+        tsns = []
+
+        for trd in trades:
+            pair = self._fetch_pair(trd['pair'])
+
+            if trd['type'] == 'buy':
+                src_value = Value(quantity=trd['cost'], currency=pair['quote'])
+                dst_value = Value(quantity=trd['vol'], currency=pair['base'])
+            else:
+                src_value = Value(quantity=trd['vol'], currency=pair['base'])
+                dst_value = Value(quantity=trd['cost'], currency=pair['quote'])
+                
+
+            tsns.append(Tsn(
+                date = trd['time'],
+                src_value = src_value,
+                src_market = "kraken",
+                dst_value = dst_value,
+                dst_market = "kraken",
+                fee = Value(quantity=trd['fee'], currency=pair['fee_volume_currency'])
+            ))
+        
+        return tsns
+
+    _PAIRS = PAIR_CACHE.load()
+    def _fetch_pair(self, name: str) -> dict:
+        fetch = lambda: requests.get(self.API_URL + '/0/public/AssetPairs').json()
+        fetch = limit(calls=1, period=2, scope='kraken')(fetch)
+
+        if name not in self._PAIRS:
+            LOG.info(f'pair [{name}] not found, updating cache')
+
+            self._PAIRS = fetch()['result']
+            assert name in self._PAIRS
+
+            self.PAIR_CACHE.dump(self._PAIRS)
+        
+        return self._PAIRS[name]
+
+    def _fetch_trades(self) -> list:
+        trades = self.TRADE_CACHE.load()
         
         while True:
             payload = dict(trades=True, ofs=len(trades))
@@ -33,15 +75,15 @@ class KrakenService:
 
             for id, data in results.items():
                 data['id'] = id
-            results = sorted(list(results.values()), key=lambda trade: trade['time'])
+            results = sorted(list(results.values()), key=lambda trade: trade['time'], reverse=True)
 
             trades.extend(results)
 
+        self.TRADE_CACHE.dump(trades)
         trades = list(reversed(trades))
-        cache_file.dump(trades)
         return trades
 
-    @limit(calls=1, period=2, scope='gecko')
+    @limit(calls=1, period=2, scope='kraken')
     def _post(self, path: str, data: dict):
         data['nonce'] = str(int(time.time() * 1000))
 
@@ -64,5 +106,5 @@ class KrakenService:
 
 if __name__ == '__main__':
     import config.configure_logging
-    resp = KrakenService().fetch_history()
+    resp = KrakenService().fetch_transactions()
     pass

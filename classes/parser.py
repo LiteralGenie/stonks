@@ -25,6 +25,8 @@ class Tsn:
 
     src_value: Value = None
     src_market: str = None
+
+    fee: Value = None
  
 @dataclass
 class Node:

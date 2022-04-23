@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 from typing import Callable, Union
 
@@ -12,6 +13,10 @@ class JsonCache:
 
     def load(self):
         import json
+
+        if not isinstance(self.fp, Path):
+            self.fp = Path(self.fp)
+        os.makedirs(self.fp.parent, exist_ok=True)        
 
         try:
             with open(self.fp, 'r+', encoding=self.encoding) as file:
