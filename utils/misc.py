@@ -1,12 +1,14 @@
 import functools
+from typing import Union
+from pathlib import Path
+
+from classes.json_cache import JsonCache
 
 
-def method_cache(fp: str):
+def method_cache(fp: Union[Path, str]):
     import functools
-    import json
-    from pathlib import Path
 
-    fp: Path = Path(fp)
+    cache_file = JsonCache(fp, default=dict())
 
     def decorator(f):
         @functools.wraps(f)
@@ -17,18 +19,15 @@ def method_cache(fp: str):
             if not fp.parent.exists():
                 fp.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(fp, 'r+', encoding='utf-8') as file:
-                try: cache = json.load(file)
-                except json.JSONDecodeError: cache = {}
+            data = cache_file.load()
     
-                if hash not in cache:
-                    result = f(*args, **kwargs)
-                    cache[hash] = result
-                
-            with open(fp, 'w+', encoding='utf-8') as file:
-                json.dump(cache, file, indent=2)
-            
-            return cache[hash]
+            if hash not in cache_file:
+                result = f(*args, **kwargs)
+                data[hash] = result
+
+            cache_file.dump(data)
+
+            return cache_file[hash]
         return wrapper
     return decorator
 
