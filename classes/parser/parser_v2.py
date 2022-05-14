@@ -75,6 +75,7 @@ class Parser:
                 cvn_value = Value(quantity=rem*cvn_rate, currency=dst.currency)
                 cvn_node = Node(value=cvn_value, tsn=tsn)
                 node.add_child(cvn_node)
+                new_nodes.append(cvn_node)
 
                 leftover = node.value.quantity - rem
                 rem_node = Node(
@@ -82,6 +83,7 @@ class Parser:
                     tsn=tsn
                 )
                 node.add_child(rem_node)
+                new_nodes.append(rem_node)
 
                 rem = 0
 

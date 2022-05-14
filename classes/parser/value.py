@@ -3,7 +3,7 @@ import dataclasses
 
 @dataclass
 class Value:
-    quantity: int
+    quantity: float
     currency: str
 
     def __mul__(self, other) -> 'Value':
@@ -21,3 +21,6 @@ class Value:
             self.quantity == other.quantity,
             self.currency == other.currency
         ])
+
+    def __hash__(self) -> int:
+        return hash(f'{self.quantity}_{self.currency}')

@@ -4,7 +4,7 @@ from classes.parser.node import Node
 from classes.parser.value import Value
 
 
-def make_node(currency: str, quantity: float) -> Node:    
+def make_node(quantity: float, currency: str) -> Node:    
     return Node(
         value = Value(quantity=quantity, currency=currency),
         tsn = None

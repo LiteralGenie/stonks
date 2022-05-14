@@ -1,4 +1,4 @@
-from classes import services
+# from classes import services
 
-GeckoService = services.GeckoService()
-KrakenService = services.KrakenService()
+# GeckoService = services.GeckoService()
+# KrakenService = services.KrakenService()

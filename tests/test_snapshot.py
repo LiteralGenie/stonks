@@ -8,9 +8,9 @@ from tests.utils import make_node
 class SnapshotTest(TestCase):
     def test_totals(self):
         nodes = [
-            make_node('a', 1),
-            make_node('a', 2),
-            make_node('b', 4),
+            make_node(1, 'a'),
+            make_node(2, 'a'),
+            make_node(4, 'b'),
         ]
 
         ss = Snapshot(tsn=None, nodes=nodes)
