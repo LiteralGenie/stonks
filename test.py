@@ -1,7 +1,12 @@
-from classes.services import GeckoService
+from config import services
+import config.configure_logging
+
+from classes.analyzer import Analyzer
+from classes.parser import Parser
 
 if __name__ == '__main__':
-    import time
-    ds = GeckoService()
-    result = ds.get_rate(time.time()-86400*2, 'cosmos', 'usd')
+    tsns = services.KrakenService.fetch_transactions()[:50]
+    tree = Parser.tree(tsns)
+    ss = Parser.snapshot(tree)
+    # result = Analyzer().get_tsn_profits(ss)
     pass

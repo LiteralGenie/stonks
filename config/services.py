@@ -1,6 +1,4 @@
-from classes.services import GeckoService
+from classes import services
 
-GeckoService: GeckoService
-
-def configure():
-    GeckoService = GeckoService()
+GeckoService = services.GeckoService()
+KrakenService = services.KrakenService()

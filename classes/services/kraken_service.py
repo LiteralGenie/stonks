@@ -6,11 +6,11 @@ import time
 import urllib.parse
 
 import requests
-from classes.parser import Tsn, Value
 from classes.json_cache import JsonCache
-
-from config import secrets, paths
-from utils.misc import limit
+from classes.parser import Tsn, Value
+from config import paths, secrets
+from utils.misc import limit, memoize
+from config.gecko_currency_map import kraken as coin_map
 
 LOG = logging.getLogger(__name__)
 
@@ -25,25 +25,31 @@ class KrakenService:
 
         for trd in trades:
             pair = self._fetch_pair(trd['pair'])
-
-            if trd['type'] == 'buy':
-                src_value = Value(quantity=trd['cost'], currency=pair['quote'])
-                dst_value = Value(quantity=trd['vol'], currency=pair['base'])
-            else:
-                src_value = Value(quantity=trd['vol'], currency=pair['base'])
-                dst_value = Value(quantity=trd['cost'], currency=pair['quote'])
-                
+            src, dst = self._get_src_dst(trd, pair)
 
             tsns.append(Tsn(
                 date = trd['time'],
-                src_value = src_value,
+                src_value = src,
                 src_market = "kraken",
-                dst_value = dst_value,
+                dst_value = dst,
                 dst_market = "kraken",
                 fee = Value(quantity=trd['fee'], currency=pair['fee_volume_currency'])
             ))
         
         return tsns
+
+    def _get_src_dst(self, trade: dict, pair: dict) -> tuple[Value, Value]:
+        quote = pair['quote']
+        base = pair['base']
+
+        if trade['type'] == 'buy':
+            src = Value(quantity=float(trade['cost']), currency=quote)
+            dst = Value(quantity=float(trade['vol']), currency=base)
+        else:
+            src = Value(quantity=float(trade['vol']), currency=base)
+            dst = Value(quantity=float(trade['cost']), currency=quote)
+
+        return src, dst
 
     _PAIRS = PAIR_CACHE.load()
     def _fetch_pair(self, name: str) -> dict:
@@ -82,6 +88,13 @@ class KrakenService:
         self.TRADE_CACHE.dump(trades)
         trades = list(reversed(trades))
         return trades
+
+    @memoize(paths.CACHE_DIR / 'kraken' / 'prices.json')
+    @limit(calls=1, period=2, scope='kraken')
+    def _fetch_coin_price(self, id: str, date: str) -> dict:
+        LOG.info(f'fetching price for {id} at {date}')
+        ep = self.api_url / 'coins' / id % { date: date }
+        return self.session.get(str(ep)).json()
 
     @limit(calls=1, period=2, scope='kraken')
     def _post(self, path: str, data: dict):
