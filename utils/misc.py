@@ -5,7 +5,7 @@ from pathlib import Path
 from classes.json_cache import JsonCache
 
 
-def method_cache(fp: Union[Path, str]):
+def memoize(fp: Union[Path, str]):
     import functools
 
     cache_file = JsonCache(fp, default=dict())
@@ -21,13 +21,13 @@ def method_cache(fp: Union[Path, str]):
 
             data = cache_file.load()
     
-            if hash not in cache_file:
+            if hash not in data:
                 result = f(*args, **kwargs)
                 data[hash] = result
 
             cache_file.dump(data)
 
-            return cache_file[hash]
+            return data[hash]
         return wrapper
     return decorator
 

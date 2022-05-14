@@ -11,11 +11,11 @@ class Value:
     currency: str
 
     def __rmul__(self, other):
-        if isinstance(other, int):
+        if isinstance(other, int) or isinstance(other, float):
             q = other * self.quantity
             return ds.replace(self, quantity=q)
         else:
-            raise NotImplemented
+            raise NotImplementedError
 
 @dataclass
 class Tsn:
@@ -46,9 +46,9 @@ class Node:
 
     def _get_basis_rate(self, currency: str) -> Value:
         if (self.parent is None) or (self.value.currency == currency):
-            return ds.replace(self.value, quantity=self.basis_rate)
+            return ds.replace(self.value, quantity=self.to_parent_rate)
         else:
-            return self.to_parent_rate * self.parent.basis_rate
+            return self.to_parent_rate * self.parent._get_basis_rate(currency)
     
     def get_basis(self, currency: str) -> Value:
         return self.value.quantity * self._get_basis_rate(currency)
@@ -69,16 +69,31 @@ class Snapshot:
     tsn: Tsn
     nodes: list[Node]
 
-    @cached_property
-    def total_basis(self):
+    def get_total_basis(self, currency: str):
         totals = dict()
 
         for node in self.nodes:
-            totals.setdefault(node.basis.currency, 0)
-            totals[node.basis.currency] += node.basis.quantity
+            basis = node.get_basis(currency)
+            totals.setdefault(basis.currency, 0)
+            totals[basis.currency] += basis.quantity
         
         return totals
     
+    def get_changes(self) -> tuple[list[Node], list[Node]]:
+        children = [
+            n for n in self.nodes
+            if n.tsn is self.tsn
+        ]
+        assert all(n.value.currency == self.tsn.dst_value.currency for n in children)
+
+        temp = [n.parent for n in children if n.parent]
+        parents = []
+        for n in temp:
+            if n not in parents:
+                parents.append(n)
+
+        return children, parents
+
 class Parser:
     @classmethod
     def tree(cls, tsns: list[Tsn]) -> list[Node]:
@@ -110,6 +125,7 @@ class Parser:
             if diff > 0:
                 root_value = Value(quantity=diff, currency=tsn.src_value.currency)
                 root_tsn = Tsn(
+                    date = tsn.date,
                     dst_value = root_value,
                     dst_market = tsn.src_market
                 )
@@ -139,6 +155,7 @@ class Parser:
     
                 rem -= deduction
                 src.add_child(child)
+                assert child.tsn is not src.tsn
     
                 # create remainder node
                 src_rem = src.value.quantity - deduction
@@ -152,10 +169,14 @@ class Parser:
                         to_parent_rate = 1
                     )
                     src.add_child(child)
+                    assert child.tsn is not src.tsn
+
+                assert src.tsn not in [n.tsn for n in src.children]
     
             # verify conversion amount
             if rem != 0:
-                raise ValueError(rem)
+                if rem > (1 / 10**10):
+                    raise ValueError(rem)
     
         # whew
         return root_nodes
@@ -183,13 +204,31 @@ class Parser:
         for ss_ind in range(len(snapshots)):
             next_visit = []
             for node in to_visit:
-                if node.children and index(node.children[0]) == ss_ind:
-                    snapshots[ss_ind].nodes.extend(node.children)
-                    next_visit.extend(node.children)
-                elif index(node) <= ss_ind:
-                    snapshots[ss_ind].nodes.append(node)
-                    next_visit.append(node)
+                # if node.children and index(node.children[0]) == ss_ind:
+                #     assert(all(index(node.children[0]) == index(c) for c in node.children))
+                #     snapshots[ss_ind].nodes.extend(node.children)
+                #     next_visit.extend(node.children)
+                # elif index(node) <= ss_ind:
+                #     snapshots[ss_ind].nodes.append(node)
+                #     next_visit.append(node)
+                # else:
+                #     next_visit.append(node)
+
+                if node.parent:
+                    assert index(node) > index(node.parent)
+
+                if node.children:
+                    assert(all(index(node.children[0]) == index(c) for c in node.children))
+                    if index(node.children[0]) == ss_ind:
+                        snapshots[ss_ind].nodes.extend(node.children)
+                        next_visit.extend(node.children)
+                    elif index(node.children[0]) > ss_ind:
+                        snapshots[ss_ind].nodes.append(node)
+                        next_visit.append(node)
+                    else:
+                        raise ValueError
                 else:
+                    snapshots[ss_ind].nodes.append(node)
                     next_visit.append(node)
     
             to_visit = next_visit
