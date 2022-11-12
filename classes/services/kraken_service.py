@@ -10,7 +10,6 @@ from classes.json_cache import JsonCache
 from classes.parser import Tsn, Value
 from config import paths, secrets
 from utils.misc import limit, memoize
-from config.gecko_currency_map import kraken as coin_map
 
 LOG = logging.getLogger(__name__)
 
