@@ -4,6 +4,9 @@ import hmac
 import logging
 import time
 import urllib.parse
+from dataclasses import dataclass
+from typing import Literal
+from decimal import Decimal
 
 import requests
 from classes.json_cache import JsonCache
@@ -13,95 +16,68 @@ from utils.misc import limit, memoize
 
 LOG = logging.getLogger(__name__)
 
+
 class KrakenService:
-    API_URL = 'https://api.kraken.com'
-    TRADE_CACHE = JsonCache(paths.CACHE_DIR / 'kraken' / 'trades.json', default=[])
-    PAIR_CACHE = JsonCache(paths.CACHE_DIR / 'kraken' / 'pairs.json', default={})
+    API_URL = "https://api.kraken.com"
+    HISTORY_CACHE = JsonCache(paths.CACHE_DIR / "kraken" / "history.json", default=[])
 
-    def fetch_transactions(self) -> list[Tsn]:
-        trades = self._fetch_trades()
-        tsns = []
+    def fetch_history(self):
+        history = [HistoryItem.from_raw(x) for x in self._fetch_history()]
+        return history
 
-        for trd in trades:
-            pair = self._fetch_pair(trd['pair'])
-            src, dst = self._get_src_dst(trd, pair)
+    def _fetch_history(self):
+        history: list = self.HISTORY_CACHE.load()
 
-            tsns.append(Tsn(
-                date = trd['time'],
-                src_value = src,
-                src_market = "kraken",
-                dst_value = dst,
-                dst_market = "kraken",
-                fee = Value(quantity=trd['fee'], currency=pair['fee_volume_currency'])
-            ))
-        
-        return tsns
-
-    def _get_src_dst(self, trade: dict, pair: dict) -> tuple[Value, Value]:
-        quote = pair['quote']
-        base = pair['base']
-
-        if trade['type'] == 'buy':
-            src = Value(quantity=float(trade['cost']), currency=quote)
-            dst = Value(quantity=float(trade['vol']), currency=base)
-        else:
-            src = Value(quantity=float(trade['vol']), currency=base)
-            dst = Value(quantity=float(trade['cost']), currency=quote)
-
-        return src, dst
-
-    _PAIRS = PAIR_CACHE.load()
-    def _fetch_pair(self, name: str) -> dict:
-        fetch = lambda: requests.get(self.API_URL + '/0/public/AssetPairs').json()
-        fetch = limit(calls=1, period=2, scope='kraken')(fetch)
-
-        if name not in self._PAIRS:
-            LOG.info(f'pair [{name}] not found, updating cache')
-
-            self._PAIRS = fetch()['result']
-            assert name in self._PAIRS
-
-            self.PAIR_CACHE.dump(self._PAIRS)
-        
-        return self._PAIRS[name]
-
-    def _fetch_trades(self) -> list:
-        trades = self.TRADE_CACHE.load()
-        
         while True:
-            payload = dict(trades=True, ofs=len(trades))
-            LOG.info(f'fetching kraken trades with offset {len(trades)}')
+            start = history[0]["time"] if len(history) else 0
+            payload = dict(trades=True, start=history[0]["time"])
+            LOG.info(f"fetching kraken history after {start}")
 
-            resp = self._post('/0/private/TradesHistory', payload)
-            results = resp['result']['trades']
+            resp = self._post("/0/private/Ledgers", payload)
+            results = resp["result"]["ledger"]
 
-            if len(trades) == resp['result']['count']:
+            if resp["result"]["count"] == 0:
                 break
 
             for id, data in results.items():
-                data['id'] = id
-            results = sorted(list(results.values()), key=lambda trade: trade['time'], reverse=True)
+                data["id"] = id
+            results = sorted(
+                list(results.values()), key=lambda trade: trade["time"], reverse=True
+            )
 
-            trades.extend(results)
+            history = results + history
 
-        self.TRADE_CACHE.dump(trades)
-        trades = list(reversed(trades))
-        return trades
+        self.HISTORY_CACHE.dump(history)
+        history = list(reversed(history))
+        return history
 
-    @memoize(paths.CACHE_DIR / 'kraken' / 'prices.json')
-    @limit(calls=1, period=2, scope='kraken')
+    def _get_src_dst(self, trade: dict, pair: dict) -> tuple[Value, Value]:
+        quote = pair["quote"]
+        base = pair["base"]
+
+        if trade["type"] == "buy":
+            src = Value(quantity=float(trade["cost"]), currency=quote)
+            dst = Value(quantity=float(trade["vol"]), currency=base)
+        else:
+            src = Value(quantity=float(trade["vol"]), currency=base)
+            dst = Value(quantity=float(trade["cost"]), currency=quote)
+
+        return src, dst
+
+    @memoize(paths.CACHE_DIR / "kraken" / "prices.json")
+    @limit(calls=1, period=2, scope="kraken")
     def _fetch_coin_price(self, id: str, date: str) -> dict:
-        LOG.info(f'fetching price for {id} at {date}')
-        ep = self.api_url / 'coins' / id % { date: date }
+        LOG.info(f"fetching price for {id} at {date}")
+        ep = self.api_url / "coins" / id % {date: date}
         return self.session.get(str(ep)).json()
 
-    @limit(calls=1, period=2, scope='kraken')
+    @limit(calls=1, period=3, scope="kraken")
     def _post(self, path: str, data: dict):
-        data['nonce'] = str(int(time.time() * 1000))
+        data["nonce"] = str(int(time.time() * 1000))
 
         headers = {}
-        headers['API-Key'] = secrets.KRAKEN_API_KEY
-        headers['API-Sign'] = self._sign(path, data)           
+        headers["API-Key"] = secrets.KRAKEN_API_KEY
+        headers["API-Sign"] = self._sign(path, data)
 
         resp = requests.post(self.API_URL + path, headers=headers, data=data)
         resp = resp.json()
@@ -109,14 +85,43 @@ class KrakenService:
 
     def _sign(self, path: str, data):
         postdata = urllib.parse.urlencode(data)
-        encoded = (str(data['nonce']) + postdata).encode()
+        encoded = (str(data["nonce"]) + postdata).encode()
         message = path.encode() + hashlib.sha256(encoded).digest()
 
-        mac = hmac.new(base64.b64decode(secrets.KRAKEN_PRIVATE_KEY), message, hashlib.sha512)
+        mac = hmac.new(
+            base64.b64decode(secrets.KRAKEN_PRIVATE_KEY), message, hashlib.sha512
+        )
         sigdigest = base64.b64encode(mac.digest())
         return sigdigest.decode()
 
-if __name__ == '__main__':
+
+@dataclass
+class HistoryItem:
+    aclass: str
+    amount: Decimal
+    asset: str
+    balance: Decimal
+    fee: Decimal
+    refid: str
+    time: float
+    type: Literal["deposit", "withdrawal", "spend", "receive", "staking"]
+    subtype: str
+    id: str
+
+    @classmethod
+    def from_raw(cls, d: dict) -> "HistoryItem":
+        d = d.copy()
+        d["amount"] = Decimal(d["amount"])
+        d["balance"] = Decimal(d["balance"])
+        d["fee"] = Decimal(d["fee"])
+        return cls(**d)
+
+    def copy(self) -> "HistoryItem":
+        return HistoryItem(**self.__dict__)
+
+
+if __name__ == "__main__":
     import config.configure_logging
+
     resp = KrakenService().fetch_transactions()
     pass
