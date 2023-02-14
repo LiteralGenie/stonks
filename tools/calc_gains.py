@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import config.configure_logging
 from classes.services.kraken_service import KrakenService
@@ -102,17 +102,17 @@ if __name__ == "__main__":
             dst_usd = val.quantity * rate
 
             diff = dst_usd - src_usd
-            dt = datetime.fromtimestamp(ddt.dst.tsn.date)
+            dt = datetime.fromtimestamp(ddt.dst.tsn.date, tz=timezone.utc)
             gains.setdefault(dt.year, [])
             gains[dt.year].append(diff)
 
             if abs(diff) > 1:
-                src_dt = datetime.fromtimestamp(ddt.src.tsn.date)
+                src_dt = datetime.fromtimestamp(ddt.src.tsn.date, tz=timezone.utc)
                 diff_text = f"{dst_usd - src_usd:+.2f}"
                 diff_text = f"{diff_text:>8}"
-                print(
-                    f"{src_dt.strftime('%Y-%m-%d')} | {dt.strftime('%Y-%m-%d')} | {src_val.quantity:>8.3f} {src_val.currency:>5} -> {val.quantity:>8.3f}  {val.currency:<8} | ${src_usd:07.2f} -> ${dst_usd:07.2f}\t| {diff_text}"
-                )
+                # print(
+                #     f"{src_dt.strftime('%Y-%m-%d')} | {dt.strftime('%Y-%m-%d')} | {src_val.quantity:>8.3f} {src_val.currency:>5} -> {val.quantity:>8.3f}  {val.currency:<8} | ${src_usd:07.2f} -> ${dst_usd:07.2f}\t| {diff_text}"
+                # )
 
     print("\ngains without staking")
     for year, gs in gains.items():
@@ -129,7 +129,7 @@ if __name__ == "__main__":
             assert abs(time_diff) <= 86400
 
         val_usd = rate * reward.total.quantity
-        dt = datetime.fromtimestamp(reward.tsn.date)
+        dt = datetime.fromtimestamp(reward.tsn.date, tz=timezone.utc)
         gains.setdefault(dt.year, [])
         gains[dt.year].append(val_usd)
 
@@ -146,13 +146,16 @@ if __name__ == "__main__":
 
             # current value
             (current_rate, time_diff) = gecko.get_rate(
-                time.time(), K2G_ID_MAP[val.currency], "usd"
+                datetime.timestamp(datetime.utcnow()), K2G_ID_MAP[val.currency], "usd"
             )
-            if abs(time_diff) > 2 * 86400:
+            if abs(time_diff) > 6 * 3600:
                 (current_rate, time_diff) = gecko.get_rate(
-                    time.time(), K2G_ID_MAP[val.currency], "usd", live=True
+                    datetime.timestamp(datetime.utcnow()),
+                    K2G_ID_MAP[val.currency],
+                    "usd",
+                    live=True,
                 )
-                assert time_diff <= 86400
+                assert time_diff <= 6 * 3600, time_diff
             current_value = current_rate * val.quantity
 
             # cost basis
@@ -167,12 +170,12 @@ if __name__ == "__main__":
             original_value = original_rate * val.quantity
 
             net_usd = current_value - original_value
-            dt_orignal = datetime.fromtimestamp(wad.tsn.date)
-            elapsed = datetime.now() - dt_orignal
-            if abs(net_usd) > 2:
-                print(
-                    f"\t{net_usd:.2f} ({val.currency})\t{elapsed.days} days ago on {dt_orignal.strftime('%Y-%m-%d')}"
-                )
+            dt_orignal = datetime.fromtimestamp(wad.tsn.date, tz=timezone.utc)
+            elapsed = datetime.now(tz=timezone.utc) - dt_orignal
+            # if abs(net_usd) > 2:
+            #     print(
+            #         f"\t{net_usd:.2f} ({val.currency})\t{elapsed.days} days ago on {dt_orignal.strftime('%Y-%m-%d')}"
+            #     )
 
             unrealized_gains.setdefault(val.currency, [])
             unrealized_gains[val.currency].append([original_value, current_value])
@@ -188,7 +191,7 @@ if __name__ == "__main__":
             total_current += current
             total_net += net
 
-        if abs(total_net) > 0.5:
+        if abs(total_current) > 0.5:
             print(
                 f"{currency:<5} | {total_net:>9.2f} from {total_current:>9.2f} bought at {total_original:>9.2f}"
             )

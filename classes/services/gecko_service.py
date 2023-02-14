@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from math import ceil
 
 import requests
 from decimal import Decimal
@@ -24,6 +25,7 @@ class GeckoService(RateService):
         super().__init__()
         self.session = requests.session()
 
+    # timestamp is utc
     def get_rate(
         self, timestamp, src: str, dst: str, live=False
     ) -> tuple[Decimal, float]:
@@ -31,7 +33,7 @@ class GeckoService(RateService):
             return (Decimal(1), 0)
 
         if live or self.price_data.get(src, dict()).get(dst) is None:
-            self._fetch_market_chart(src, dst)
+            self._fetch_market_chart(src, dst, timestamp)
             self.PRICE_CACHE.dump(self.price_data)
 
         return self._get_closest_rate(timestamp, src, dst)
@@ -47,13 +49,14 @@ class GeckoService(RateService):
         return (Decimal(data[closest_key]), timestamp - cvt(closest_key))
 
     @limit(calls=1, period=7, scope="gecko")
-    def _fetch_market_chart(self, src: str, dst: str) -> dict:
+    def _fetch_market_chart(self, src: str, dst: str, timestamp: float) -> dict:
+        max_age_days = ceil((datetime.timestamp(datetime.utcnow()) - timestamp) / 86400)
         ep = (
             self.api_url
             / "coins"
             / src
             / "market_chart"
-            % {"days": "max", "vs_currency": dst}
+            % {"days": str(max_age_days), "vs_currency": dst}
         )
         LOG.info(f"Fetching price for {src} / {dst} -- {ep}")
 
