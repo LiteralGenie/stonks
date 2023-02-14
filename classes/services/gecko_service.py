@@ -2,59 +2,71 @@ import logging
 from datetime import datetime
 
 import requests
+from decimal import Decimal
 from classes.json_cache import JsonCache
 from config import paths
-from utils.misc import limit, memoize
+from utils.misc import limit
 from yarl import URL
 
 from .rate_service import RateService
 
 LOG = logging.getLogger(__name__)
 
+
 class GeckoService(RateService):
     session: requests.Session
-    api_url = URL('https://api.coingecko.com/api/v3')
+    api_url = URL("https://api.coingecko.com/api/v3")
 
-    LIST_CACHE = JsonCache(paths.CACHE_DIR / 'coingecko' / 'coin_list.json', default=dict())
+    PRICE_CACHE = JsonCache(paths.CACHE_DIR / "gecko" / "prices.json", default={})
+    price_data: dict = PRICE_CACHE.load()
 
     def __init__(self) -> None:
         super().__init__()
         self.session = requests.session()
 
-    def get_rate(self, timestamp, src: str, dst: str):
+    def get_rate(
+        self, timestamp, src: str, dst: str, live=False
+    ) -> tuple[Decimal, float]:
         if src == dst:
-            return 1
-        if src == 'usd':
-            return 1 / self.get_rate(timestamp, dst, src)
+            return (Decimal(1), 0)
 
-        dst_symbol = self.fetch_coin_symbol(dst)
-        date = self._epoch_to_date(timestamp)
-        resp = self._fetch_coin_price(src, date)
-        return resp['market_data']['current_price'][dst_symbol]
+        if live or self.price_data.get(src, dict()).get(dst) is None:
+            self._fetch_market_chart(src, dst)
+            self.PRICE_CACHE.dump(self.price_data)
 
-    @memoize(paths.CACHE_DIR / 'coingecko' / 'coin_prices.json')
-    @limit(calls=1, period=1, scope='gecko')
-    def _fetch_coin_price(self, id: str, date: str) -> dict:
-        LOG.info(f'fetching price for {id} at {date}')
-        ep = self.api_url / 'coins' / id % { date: date }
-        return self.session.get(str(ep)).json()
+        return self._get_closest_rate(timestamp, src, dst)
 
-    def _epoch_to_date(self, timestamp: float):
-        return datetime.fromtimestamp(timestamp).strftime(r'%m-%d-%Y')
+    def _get_closest_rate(
+        self, timestamp: float, src: str, dst: str
+    ) -> tuple[Decimal, float]:
+        data: dict = self.price_data[src][dst]["prices"]
 
-    _COIN_LIST = LIST_CACHE.load()
-    def fetch_coin_symbol(self, id: str):
-        if id in ['usd']:
-            return 'usd'
+        cvt = lambda ts_str: float(ts_str) / 1000
+        closest_key = min(data.keys(), key=lambda ts: abs(timestamp - cvt(ts)))
 
-        if id not in self._COIN_LIST:
-            assert id in self._COIN_LIST
-            self.LIST_CACHE.dump(self._COIN_LIST)
-        return self._COIN_LIST[id]
+        return (Decimal(data[closest_key]), timestamp - cvt(closest_key))
 
-    @limit(calls=1, period=1, scope='gecko')
-    def _update_coin_list(self):
-        LOG.info(f'updating gecko coin list because [{id}] was not found')
-        ep = self.api_url / 'coins' / 'list'
+    @limit(calls=1, period=7, scope="gecko")
+    def _fetch_market_chart(self, src: str, dst: str) -> dict:
+        ep = (
+            self.api_url
+            / "coins"
+            / src
+            / "market_chart"
+            % {"days": "max", "vs_currency": dst}
+        )
+        LOG.info(f"Fetching price for {src} / {dst} -- {ep}")
+
         resp = self.session.get(str(ep)).json()
-        self._COIN_LIST = { x['id']: x for x in resp }
+        assert "error" not in resp
+
+        self.price_data.setdefault(src, dict()).setdefault(
+            dst, dict(prices=dict(), market_caps=dict(), total_volumes=dict())
+        )
+        tgt = self.price_data[src][dst]
+        for k in tgt:
+            update = {d[0]: d[1] for d in resp[k]}
+            tgt[k].update(update)
+
+        self.PRICE_CACHE.dump(self.price_data)
+        return self.price_data[src][dst]

@@ -4,12 +4,13 @@ import config.configure_logging
 from classes.parser.tsn import Tsn, Value
 from classes.services.kraken_service import HistoryItem, KrakenService
 import logging
+import datetime
 
 LOG = logging.getLogger(__name__)
 
 
 class HistoryParser:
-    CURRENCY_MAP = {"ZUSD": "USD", "USD.HOLD": "USD"}
+    CURRENCY_MAP = {"ZUSD": "USD", "USD.HOLD": "USD", "ATOM.S": "ATOM"}
 
     @classmethod
     def parse_history(cls, history: list[HistoryItem]) -> list[Tsn]:
@@ -37,7 +38,7 @@ class HistoryParser:
                             date=item.time,
                             dst_value=Value(item.amount, item.asset),
                             fee=Value(item.fee, item.asset),
-                            meta=dict(type="deposit"),
+                            meta=dict(type="deposit", id=item.refid),
                         )
                     )
                 case "withdrawal":
@@ -48,7 +49,7 @@ class HistoryParser:
                             date=item.time,
                             src_value=Value(-1 * item.amount, item.asset),
                             fee=Value(item.fee, item.asset),
-                            meta=dict(type="withdrawal"),
+                            meta=dict(type="withdrawal", id=item.refid),
                         )
                     )
                 case "spend":
@@ -72,7 +73,7 @@ class HistoryParser:
                             src_value=Value(-1 * item.amount, item.asset),
                             dst_value=Value(item_next.amount, item_next.asset),
                             fee=fee,
-                            meta=dict(type="trade"),
+                            meta=dict(type="trade", id=item.refid),
                         )
                     )
 
@@ -87,7 +88,7 @@ class HistoryParser:
                             date=item.time,
                             dst_value=Value(item.amount, item.asset),
                             fee=Value(item.fee, item.asset),
-                            meta=dict(type="staking"),
+                            meta=dict(type="staking", id=item.refid),
                         )
                     )
                 case "trade":
@@ -116,7 +117,7 @@ class HistoryParser:
                             src_value=Value(-1 * item.amount, item.asset),
                             dst_value=Value(item_next.amount, item_next.asset),
                             fee=fee,
-                            meta=dict(type="trade"),
+                            meta=dict(type="trade", id=item.refid),
                         )
                     )
 
@@ -142,6 +143,7 @@ class HistoryParser:
 class Deduction:
     value: Value
     tsn: Tsn
+    src: "Wad"
     dst: "Wad | None" = None
 
 
@@ -161,6 +163,7 @@ class Wad:
             Deduction(
                 value=Value(quantity=value.quantity, currency=value.currency),
                 tsn=tsn,
+                src=self,
                 dst=dst,
             )
         )
@@ -294,6 +297,7 @@ if __name__ == "__main__":
 
     wallet = Wallet()
     for tsn in tsns:
+        dt = datetime.datetime.fromtimestamp(tsn.date)
         wallet.transact(tsn)
 
     print(wallet)

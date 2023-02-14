@@ -23,3 +23,6 @@ class Value:
 
     def __hash__(self) -> int:
         return hash(f"{self.quantity}_{self.currency}")
+
+    def __repr__(self):
+        return f"{self.quantity:.3f} {self.currency}"

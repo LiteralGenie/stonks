@@ -1,4 +1,5 @@
 import base64
+import datetime
 import hashlib
 import hmac
 import logging
@@ -27,25 +28,34 @@ class KrakenService:
 
     def _fetch_history(self):
         history: list = self.HISTORY_CACHE.load()
+        return history
 
+        end = time.time()
         while True:
-            start = history[0]["time"] if len(history) else 0
-            payload = dict(trades=True, start=history[0]["time"])
-            LOG.info(f"fetching kraken history after {start}")
+            payload = dict(trades=True, end=end)
+            LOG.info(
+                f"fetching kraken history before {datetime.datetime.fromtimestamp(end)}"
+            )
 
             resp = self._post("/0/private/Ledgers", payload)
             results = resp["result"]["ledger"]
 
-            if resp["result"]["count"] == 0:
+            newItems = {
+                k: v
+                for k, v in results.items()
+                if not any(k == y["id"] for y in history)
+            }
+            if not len(newItems):
                 break
 
-            for id, data in results.items():
+            for id, data in newItems.items():
                 data["id"] = id
-            results = sorted(
-                list(results.values()), key=lambda trade: trade["time"], reverse=True
+            newItems = sorted(
+                list(newItems.values()), key=lambda trade: trade["time"], reverse=True
             )
 
-            history = results + history
+            history += newItems
+            end = history[-1]["time"]
 
         self.HISTORY_CACHE.dump(history)
         history = list(reversed(history))
@@ -71,7 +81,7 @@ class KrakenService:
         ep = self.api_url / "coins" / id % {date: date}
         return self.session.get(str(ep)).json()
 
-    @limit(calls=1, period=3, scope="kraken")
+    @limit(calls=1, period=5, scope="kraken")
     def _post(self, path: str, data: dict):
         data["nonce"] = str(int(time.time() * 1000))
 
